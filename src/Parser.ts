@@ -1,12 +1,37 @@
-const QuoteType = {
-  always: 1,
-  never: 2,
-  auto: 3,
+type TagTypes =
+  | "escapedollar"
+  | "openmath"
+  | "closemath"
+  | "open"
+  | "close"
+  | "newline"
+  | "content";
+
+/**
+ * There's a reason we differentiate between display and inline math (even
+ * though we don't do rendering): display math is a block-level element, so must
+ * be treated as such. Thus, in the fixNewlines function, we also check this.
+ */
+export type LatexDelimeter = {
+  begin: string;
+  end: string;
+  display?: boolean;
 };
 
-type TagTypes = "open" | "close" | "newline" | "content";
+export type ParserOptions = {
+  breakBeforeBlock?: boolean;
+  breakStartBlock?: boolean;
+  breakEndBlock?: boolean;
+  breakAfterBlock?: boolean;
+  removeEmptyTags?: boolean;
+  fixInvalidNesting?: boolean;
+  fixInvalidChildren?: boolean;
+  delimeters?: { open: string; close: string; markClose: string };
+  latexDelimeters?: LatexDelimeter[];
+  escapeDollar?: boolean;
+};
 
-export const ParserDefaults = {
+const ParserDefaults: ParserOptions = {
   breakBeforeBlock: false,
   breakStartBlock: false,
   breakEndBlock: false,
@@ -14,9 +39,39 @@ export const ParserDefaults = {
   removeEmptyTags: true,
   fixInvalidNesting: true,
   fixInvalidChildren: true,
-  quoteType: QuoteType.auto,
-  delimeters: { open: "\\[", close: "\\]", markClose: "\\/" },
+  delimeters: { open: "[", close: "]", markClose: "/" },
+  latexDelimeters: [
+    {
+      begin: "$",
+      end: "$",
+    },
+    {
+      begin: "\\(",
+      end: "\\)",
+    },
+    {
+      begin: "\\[",
+      end: "\\]",
+      display: true,
+    },
+    {
+      begin: "$$",
+      end: "$$",
+      display: true,
+    },
+  ],
 };
+
+/**
+ * A helper function (stolen from MathJax) to convert strings to
+ * regex-compatible strings
+ *
+ * @param { string } text Text we want to escape for Regex use
+ * @returns { string } A regex-compatible string
+ */
+export function escapeRegex(text: string): string {
+  return text.replace(/([\^$(){}+*?\-|\[\]\:\\])/g, "\\$1");
+}
 
 export type BBCode = {
   isInline?: boolean;
@@ -103,27 +158,53 @@ export class Token {
   }
 }
 
+type LaTeX = {
+  begin: string;
+  end: string;
+};
+
+/**
+ * @todo Put these todos in the right place, not just all up here
+ * @todo Add a documentation of the class
+ * @todo Make latex be parsed (in tokenizeTag)
+ * @todo Make fixNewlines actually fix newlines around dmath
+ * @todo Add ref support?
+ */
 export default class Parser {
-  private options: typeof ParserDefaults;
-  public QuoteType = QuoteType;
+  private options: ParserOptions;
   private tokenTypes: {
     content: RegExp;
     newline: RegExp;
     open: RegExp;
     close: RegExp;
   };
-  private tokenOrder = ["close", "open", "newline", "content"];
-  private tagDelimeters = { open: "\\[", close: "\\]", markClose: "\\/" };
+  private tokenOrder = [
+    "escapeddollar",
+    "openmath",
+    "closemath",
+    "close",
+    "open",
+    "newline",
+    "content",
+  ];
+  private tagDelimeters = { open: "[", close: "]", markClose: "/" };
   private handlers: { [key: string]: BBCode } = {};
+  private end: { [key: string]: string } = {};
 
+  /**
+   * @todo Document constructor
+   */
   constructor(
-    handlers: { [key: string]: any } = {},
-    options?: typeof ParserDefaults
+    handlers: { [key: string]: BBCode } = {},
+    options?: ParserOptions
   ) {
     this.options = Object.assign({}, ParserDefaults, options);
     this.tagDelimeters = Object.assign(
       this.tagDelimeters,
       this.options.delimeters || {}
+    );
+    Object.keys(this.tagDelimeters).forEach(
+      (key) => (this.tagDelimeters[key] = escapeRegex(this.tagDelimeters[key]))
     );
     const { open, close, markClose } = this.tagDelimeters;
     this.tokenTypes = {
@@ -133,6 +214,9 @@ export default class Parser {
       close: new RegExp(`^${open}${markClose}[^${open}${close}]+${close}`),
     };
     this.handlers = handlers;
+    this.options.latexDelimeters.forEach(
+      (el) => el.begin && (this.end[el.begin] = el.end)
+    );
   }
 
   /**
@@ -207,9 +291,9 @@ export default class Parser {
   /**
    * Parse the tag and convert it into a token.
    *
-   * @param type The type of tag
-   * @param val The actual tag
-   * @returns The token the tag was derived from.
+   * @param { TagTypes } type The type of tag
+   * @param { string } val The actual tag
+   * @returns { Token } The token the tag was derived from.
    */
   private tokenizeTag(type: TagTypes, val: string): Token {
     const { open, close, markClose } = this.tagDelimeters;
@@ -302,7 +386,8 @@ export default class Parser {
    *  }
    * ]
    *
-   * @param text The text to tokenize
+   * @param { string } text The text to tokenize
+   * @returns { Token[] } an array of tokens as described above
    */
   private tokenize(text: string): Token[] {
     let matches: string[] = [],
