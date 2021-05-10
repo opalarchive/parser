@@ -60,6 +60,7 @@ const ParserDefaults: ParserOptions = {
       display: true,
     },
   ],
+  escapeDollar: true,
 };
 
 /**
@@ -83,6 +84,7 @@ export type BBCode = {
   breakStart?: boolean;
   breakEnd?: boolean;
   allowsEmpty?: boolean;
+  allowMath?: boolean;
   exectute?: (token: Token) => any;
 };
 
@@ -98,6 +100,7 @@ export class Token {
   public attrs: { [key: string]: string };
   public children: Token[];
   public closing: Token | null;
+  public error: string;
 
   /**
    * @param type The type of tag
@@ -113,7 +116,8 @@ export class Token {
     value: string,
     attrs: { [key: string]: string } = {},
     children: Token[] = [],
-    closing: Token = null
+    closing: Token = null,
+    error: string = ""
   ) {
     this.type = type;
     this.name = name;
@@ -121,8 +125,9 @@ export class Token {
     this.attrs = attrs;
     this.children = children;
     this.closing = closing;
+    this.error = error;
 
-    if (type !== "open" && !!closing)
+    if (type !== "open" && type !== "openmath" && !!closing)
       throw "A closing tag should only appear with an opening tag!";
   }
 
@@ -138,7 +143,8 @@ export class Token {
       this.value,
       this.attrs,
       [],
-      this.closing ? this.closing.clone() : null
+      this.closing ? this.closing.clone() : null,
+      this.error
     );
   }
 
@@ -158,15 +164,8 @@ export class Token {
   }
 }
 
-type LaTeX = {
-  begin: string;
-  end: string;
-};
-
 /**
  * @todo Put these todos in the right place, not just all up here
- * @todo Add a documentation of the class
- * @todo Make latex be parsed (in tokenizeTag)
  * @todo Make fixNewlines actually fix newlines around dmath
  * @todo Add ref support?
  */
@@ -177,9 +176,12 @@ export default class Parser {
     newline: RegExp;
     open: RegExp;
     close: RegExp;
+    escapedollar: RegExp;
+    openmath: RegExp;
+    closemath: RegExp;
   };
   private tokenOrder = [
-    "escapeddollar",
+    "escapedollar",
     "openmath",
     "closemath",
     "close",
@@ -199,24 +201,54 @@ export default class Parser {
     options?: ParserOptions
   ) {
     this.options = Object.assign({}, ParserDefaults, options);
+
     this.tagDelimeters = Object.assign(
       this.tagDelimeters,
       this.options.delimeters || {}
     );
+    this.options.delimeters = {
+      open: this.tagDelimeters.open,
+      close: this.tagDelimeters.close,
+      markClose: this.tagDelimeters.markClose,
+    };
+    const openStart = this.tagDelimeters.open[0];
     Object.keys(this.tagDelimeters).forEach(
       (key) => (this.tagDelimeters[key] = escapeRegex(this.tagDelimeters[key]))
     );
-    const { open, close, markClose } = this.tagDelimeters;
-    this.tokenTypes = {
-      content: new RegExp(`^([^${open}\r\n]+|${open})`),
-      newline: new RegExp(`^(\r\n|\r|\n)`),
-      open: new RegExp(`^${open}[^${open}${close}]+${close}`),
-      close: new RegExp(`^${open}${markClose}[^${open}${close}]+${close}`),
-    };
-    this.handlers = handlers;
+
     this.options.latexDelimeters.forEach(
       (el) => el.begin && (this.end[el.begin] = el.end)
     );
+
+    const { open, close, markClose } = this.tagDelimeters;
+    let endContent = [openStart] as string[];
+    this.options.latexDelimeters.forEach((el) =>
+      endContent.push(el.begin[0], el.end[0])
+    );
+    endContent = [...new Set(endContent)].map((delim) => escapeRegex(delim));
+    this.tokenTypes = {
+      content: new RegExp(
+        `^([^${endContent.join("")}\r\n]+|${endContent.join("|")})`
+      ),
+      newline: new RegExp(`^(\r\n|\r|\n)`),
+      open: new RegExp(`^${open}[^${open}${close}]+${close}`),
+      close: new RegExp(`^${open}${markClose}[^${open}${close}]+${close}`),
+      escapedollar: /^\\\$/,
+      openmath: new RegExp(
+        `^(${this.options.latexDelimeters
+          .map((delim) => escapeRegex(delim.begin))
+          .join("|")})`
+      ),
+      closemath: new RegExp(
+        `^(${this.options.latexDelimeters
+          .map((delim) => escapeRegex(delim.end))
+          .join("|")})`
+      ),
+    };
+
+    this.handlers = handlers;
+
+    if (!this.options.escapeDollar) this.tokenOrder.shift();
   }
 
   /**
@@ -344,6 +376,10 @@ export default class Parser {
     } else if (type === "close" && (matches = val.match(closeRegex)))
       name = matches[1].toLowerCase();
     else if (type === "newline") name = "#newline";
+    else if (type === "escapedollar") {
+      type = "content";
+      name = "#";
+    } else if (type === "openmath" || type === "closemath") name = val;
 
     if (
       !name ||
@@ -709,6 +745,69 @@ export default class Parser {
 
     while ((token = tokens.shift())) {
       next = tokens[0];
+
+      if (token.type === "openmath") {
+        // A verbatim or code environment where math is not allowed
+        if (
+          openTags
+            .filter((tag) => !!tag)
+            .some((tag) => this.handlers[tag.name].allowMath === false)
+        ) {
+          token.type = "content";
+          addTag(token);
+          continue;
+        }
+
+        if (
+          !(
+            this.hasTag(this.end[token.name], "closemath", tokens) ||
+            this.hasTag(this.end[token.name], "openmath", tokens)
+          )
+        ) {
+          // This means the user does something like $2+3, which basically means throw error
+          token.error = `The corresponding closing tag for ${token.name} was not found`;
+          tokens.forEach((tok) => {
+            tok.type = "content";
+            token.children.push(tok);
+          });
+          tokens.length = 0;
+
+          // Add it to the output or the parent open tag
+          addTag(token);
+
+          let tok;
+
+          // Close all of the open tags now
+          while (openTags.length > 0) {
+            tok = openTags.pop();
+            tok.closing = new Token(
+              "close",
+              tok.name,
+              `${this.options.delimeters.open}${this.options.delimeters.markClose}${tok.name}${this.options.delimeters.close}`
+            );
+          }
+
+          break;
+        }
+
+        // It has a closing token, so we just iterate through everything until that point and then just deal with the closing there
+        let tok;
+
+        while (
+          (tok = tokens.shift()) &&
+          !(
+            (tok.type === "closemath" || tok.type === "openmath") &&
+            tok.name === this.end[token.name]
+          )
+        ) {
+          tok.type = "content";
+          token.children.push(tok);
+        }
+
+        token.closing = tok;
+        addTag(token);
+        continue;
+      }
 
       // If for some of its parents, we don't render the child, we don't render
       // However, we check it's not the current tag's closing tag.

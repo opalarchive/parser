@@ -5,7 +5,7 @@
       "alwaysStrict": true,
       "baseUrl": "./src",
       "checkJs": false,
-      "declaration": false,
+      "declaration": true,
       "emitDecoratorMetadata": true,
       "esModuleInterop": true,
       "experimentalDecorators": true,
@@ -34,8 +34,8 @@
       "strictNullChecks": false,
       "suppressImplicitAnyIndexErrors": true,
       "target": "es2020",
-      "typeRoots": ["./src/typings"]
+      "typeRoots": ["./src/typings"],
     },
     "exclude": ["node_modules"],
-    "include": ["src/**/*", "src/**/*.json"]
+    "include": ["src/**/*", "src/**/*.json"],
   }
