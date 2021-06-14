@@ -74,6 +74,17 @@ export function escapeRegex(text: string): string {
   return text.replace(/([\^$(){}+*?\-|\[\]\:\\])/g, "\\$1");
 }
 
+/**
+ * The BBCode type. Here are the default assumptions:
+ *  - isInline: true
+ *  - closedBy: []
+ *  - isSelfClosing: false
+ *  - breakBefore: true
+ *  - breakAfter: true
+ *  - breakEnd: true
+ *  - allowsEmpty: true
+ *  - allowsMath: true
+ */
 export type BBCode = {
   isInline?: boolean;
   closedBy?: string[];
@@ -85,7 +96,6 @@ export type BBCode = {
   breakEnd?: boolean;
   allowsEmpty?: boolean;
   allowMath?: boolean;
-  exectute?: (token: Token) => any;
 };
 
 /**
@@ -297,7 +307,8 @@ export default class Parser {
      * @var attributes The object of attributes
      */
     var matches,
-      attrRegex = /([^\s=]+)=(?:(?:(["'])((?:\\\2|[^\2])*?)\2)|((?:.(?!\s\S+=))*.))/g,
+      attrRegex =
+        /([^\s=]+)=(?:(?:(["'])((?:\\\2|[^\2])*?)\2)|((?:.(?!\s\S+=))*.))/g,
       attributes: { [key: string]: string } = {};
 
     // If there is only the default attribute, strip it and add it.
@@ -377,7 +388,7 @@ export default class Parser {
       name = matches[1].toLowerCase();
     else if (type === "newline") name = "#newline";
     else if (type === "escapedollar") {
-      type = "content";
+      type = "escapedollar";
       name = "#";
     } else if (type === "openmath" || type === "closemath") name = val;
 
