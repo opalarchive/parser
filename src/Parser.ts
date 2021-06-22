@@ -1,7 +1,9 @@
-type TagTypes =
+export type TagTypes =
   | "escapedollar"
-  | "openmath"
-  | "closemath"
+  | "opendmath"
+  | "closedmath"
+  | "openimath"
+  | "closeimath"
   | "open"
   | "close"
   | "newline"
@@ -137,7 +139,12 @@ export class Token {
     this.closing = closing;
     this.error = error;
 
-    if (type !== "open" && type !== "openmath" && !!closing)
+    if (
+      !["open", "openimath", "closeimath", "opendmath", "closedmath"].some(
+        (el) => type === el
+      ) &&
+      !!closing
+    )
       throw "A closing tag should only appear with an opening tag!";
   }
 
@@ -182,18 +189,14 @@ export class Token {
 export default class Parser {
   private options: ParserOptions;
   private tokenTypes: {
-    content: RegExp;
-    newline: RegExp;
-    open: RegExp;
-    close: RegExp;
-    escapedollar: RegExp;
-    openmath: RegExp;
-    closemath: RegExp;
+    [key in TagTypes]: RegExp;
   };
   private tokenOrder = [
     "escapedollar",
-    "openmath",
-    "closemath",
+    "opendmath",
+    "closedmath",
+    "openimath",
+    "closeimath",
     "close",
     "open",
     "newline",
@@ -244,13 +247,27 @@ export default class Parser {
       open: new RegExp(`^${open}[^${open}${close}]+${close}`),
       close: new RegExp(`^${open}${markClose}[^${open}${close}]+${close}`),
       escapedollar: /^\\\$/,
-      openmath: new RegExp(
+      opendmath: new RegExp(
         `^(${this.options.latexDelimeters
+          .filter((el) => el.display)
           .map((delim) => escapeRegex(delim.begin))
           .join("|")})`
       ),
-      closemath: new RegExp(
+      closedmath: new RegExp(
         `^(${this.options.latexDelimeters
+          .filter((el) => el.display)
+          .map((delim) => escapeRegex(delim.end))
+          .join("|")})`
+      ),
+      openimath: new RegExp(
+        `^(${this.options.latexDelimeters
+          .filter((el) => !el.display)
+          .map((delim) => escapeRegex(delim.begin))
+          .join("|")})`
+      ),
+      closeimath: new RegExp(
+        `^(${this.options.latexDelimeters
+          .filter((el) => !el.display)
           .map((delim) => escapeRegex(delim.end))
           .join("|")})`
       ),
@@ -390,7 +407,12 @@ export default class Parser {
     else if (type === "escapedollar") {
       type = "escapedollar";
       name = "#";
-    } else if (type === "openmath" || type === "closemath") name = val;
+    } else if (
+      ["openimath", "opendmath", "closeimath", "closedmath"].some(
+        (el) => el === type
+      )
+    )
+      name = val;
 
     if (
       !name ||
@@ -757,7 +779,7 @@ export default class Parser {
     while ((token = tokens.shift())) {
       next = tokens[0];
 
-      if (token.type === "openmath") {
+      if (token.type === "openimath" || token.type === "opendmath") {
         // A verbatim or code environment where math is not allowed
         if (
           openTags
@@ -771,8 +793,11 @@ export default class Parser {
 
         if (
           !(
-            this.hasTag(this.end[token.name], "closemath", tokens) ||
-            this.hasTag(this.end[token.name], "openmath", tokens)
+            this.hasTag(
+              this.end[token.name],
+              token.type.replace("open", "close") as TagTypes,
+              tokens
+            ) || this.hasTag(this.end[token.name], token.type, tokens)
           )
         ) {
           // This means the user does something like $2+3, which basically means throw error
@@ -807,7 +832,8 @@ export default class Parser {
         while (
           (tok = tokens.shift()) &&
           !(
-            (tok.type === "closemath" || tok.type === "openmath") &&
+            (tok.type === (token.type.replace("open", "close") as TagTypes) ||
+              tok.type === token.type) &&
             tok.name === this.end[token.name]
           )
         ) {
