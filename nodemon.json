@@ -1,5 +1,5 @@
 {
-  "ignore": [".git", "node_modules/", "dist/", "rethinkdb_data/", "css/"],
+  "ignore": [".git", "node_modules/", "dist/"],
   "watch": ["src"],
   "exec": "cross-env NODE_ENV=development ts-node --files ./src/index.ts",
   "ext": "ts"

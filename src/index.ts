@@ -414,6 +414,13 @@ export default class Parser {
     )
       name = val;
 
+    /**
+     * @todo Fix this; temporary fix to stop the issue of say
+     *  [code lang=ts]
+     * from not being picked up
+     */
+    name = name?.trim();
+
     if (
       !name ||
       ((type === "open" || type === "close") && !this.handlers[name])
@@ -488,7 +495,6 @@ export default class Parser {
 
       text = "";
     }
-
     return tokens;
   }
 
