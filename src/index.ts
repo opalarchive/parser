@@ -398,7 +398,6 @@ export default class Parser {
     // If it's a non-content tag, we have to extract a special name (we check
     // with this.handlers to make sure the tag is wanted by the user)
     if (type === "open" && (matches = val.match(openRegex))) {
-      console.log(matches);
       name = matches[1].toLowerCase();
 
       if (matches[2] && (matches[2] = matches[2].trim()))
