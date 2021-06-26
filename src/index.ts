@@ -366,6 +366,7 @@ export default class Parser {
      *  (
      *    [^${close}\s=]+   Anything that's not close, spaces, or equal
      *                        (i.e. the main tag name)
+     *                      BE CAREFUL - I FORGOT TO ESCAPE THE \ in \s
      *  )
      *  (
      *    ?:(
@@ -388,7 +389,7 @@ export default class Parser {
       attrs,
       name,
       openRegex = new RegExp(
-        `${open}([^${close}\s=]+)(?:([^${close}]+))?${close}`
+        `${open}([^${close}\\s=]+)(?:([^${close}]+))?${close}`
       ),
       closeRegex = new RegExp(
         `${open}${markClose}([^${open}${close}]+)${close}`
@@ -397,6 +398,7 @@ export default class Parser {
     // If it's a non-content tag, we have to extract a special name (we check
     // with this.handlers to make sure the tag is wanted by the user)
     if (type === "open" && (matches = val.match(openRegex))) {
+      console.log(matches);
       name = matches[1].toLowerCase();
 
       if (matches[2] && (matches[2] = matches[2].trim()))
@@ -413,13 +415,6 @@ export default class Parser {
       )
     )
       name = val;
-
-    /**
-     * @todo Fix this; temporary fix to stop the issue of say
-     *  [code lang=ts]
-     * from not being picked up
-     */
-    name = name?.trim();
 
     if (
       !name ||
