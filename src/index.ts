@@ -558,14 +558,19 @@ export default class Parser {
 
     const isInline = (tag: string) => {
       const bbcode = this.handlers[tag];
-      return !bbcode || bbcode.isInline !== false;
+      return !bbcode || bbcode.isInline === true;
+    };
+
+    const isBlock = (tag: string) => {
+      const bbcode = this.handlers[tag];
+      return !bbcode || bbcode.isInline === false;
     };
 
     for (let i = 0; i < main.length; i++) {
       if (!(token = main[i]) || token.type !== "open") continue;
 
       // We have the mentioned scenario, so we cut it out, paste it, and recurse
-      if (!!inline && !isInline(token.name)) {
+      if (!!inline && isBlock(token.name)) {
         parent = parents[parents.length - 1];
         right = parent.splitAt(token);
         heirarchyChildren =
@@ -593,7 +598,7 @@ export default class Parser {
           if (
             (clone = right.children[0]) &&
             clone.type === "newline" &&
-            !isInline(token.name)
+            isBlock(token.name)
           ) {
             right.children.splice(0, 1);
             heirarchyChildren.splice(parentIdx + 2, 0, clone);
