@@ -697,6 +697,8 @@ export default class Parser {
         )
           remove = true;
 
+        if (!!left && left.type === "opendmath") remove = true;
+
         // If it's of the form \n [tag /] then we do similar calculations and
         // remove the newline if needed
         if (
@@ -714,6 +716,11 @@ export default class Parser {
             remove = true;
 
           removedBreakStart = remove;
+        }
+
+        if (!removedBreakStart && right && right.type === "opendmath") {
+          remove = true;
+          removedBreakStart = true;
         }
 
         // If we're supposed to remove the newline then remove it
