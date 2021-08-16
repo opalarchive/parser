@@ -751,6 +751,7 @@ export default class Parser {
 
       // Remove the empty children
       if (
+        token.children[0] &&
         isWhitespace(token.children) &&
         (bbcode = this.handlers[token.name]) &&
         !bbcode.isSelfClosing &&
